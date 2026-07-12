@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-api
+  namespace: fcg
+  labels:
+    app: catalog-api
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catalog-api
+  template:
+    metadata:
+      labels:
+        app: catalog-api
+        tier: backend
+    spec:
+      containers:
+        - name: catalog-api
+          image: fcg-catalog-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: catalog-api-config
+          env:
+            - name: Jwt__Secret
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-api-secrets
+                  key: Jwt__Secret
+            - name: ConnectionStrings__Postgres
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-api-secrets
+                  key: ConnectionStrings__Postgres
+            - name: RabbitMQ__Password
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-api-secrets
+                  key: RabbitMQ__Password
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"

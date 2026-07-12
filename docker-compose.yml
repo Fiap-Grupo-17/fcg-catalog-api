@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fcg-postgres-catalog
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: fcg_db
+      POSTGRES_USER: fcg_user
+      POSTGRES_PASSWORD: fcg_pass
+    volumes:
+      - pgdata_catalog:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fcg_user -d fcg_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: fcg-rabbitmq-catalog
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  catalog-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fcg-catalog-api
+    ports:
+      - "8082:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ConnectionStrings__Postgres: "Host=postgres;Database=fcg_db;Username=fcg_user;Password=fcg_pass"
+      Jwt__Secret: "fcg-super-secret-key-change-in-production-min32chars!"
+      Jwt__Issuer: "fcg-users-api"
+      Jwt__Audience: "fcg-platform"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__VirtualHost: /
+      RabbitMQ__Username: guest
+      RabbitMQ__Password: guest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  pgdata_catalog:
