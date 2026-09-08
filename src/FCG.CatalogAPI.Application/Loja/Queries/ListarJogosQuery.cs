@@ -5,7 +5,7 @@ namespace FCG.CatalogAPI.Application.Loja.Queries;
 
 public record JogoDto(Guid Id, string Titulo, string Descricao, string Genero, decimal Preco);
 
-public class ListarJogosHandler
+public class ListarJogosHandler : IListarJogosHandler
 {
     private readonly ICatalogDbContext _db;
 

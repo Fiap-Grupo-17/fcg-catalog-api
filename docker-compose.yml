@@ -33,6 +33,31 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: fcg-redis-catalog
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    container_name: fcg-mongo-catalog
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata_catalog:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   catalog-api:
     build:
       context: .
@@ -50,10 +75,17 @@ services:
       RabbitMQ__VirtualHost: /
       RabbitMQ__Username: guest
       RabbitMQ__Password: guest
+      Redis__ConnectionString: "redis:6379"
+      Mongo__ConnectionString: "mongodb://mongo:27017"
+      Mongo__Database: "fcg_catalog"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -64,3 +96,4 @@ services:
 
 volumes:
   pgdata_catalog:
+  mongodata_catalog:

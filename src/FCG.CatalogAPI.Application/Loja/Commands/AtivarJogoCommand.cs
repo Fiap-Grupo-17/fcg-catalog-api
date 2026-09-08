@@ -1,3 +1,4 @@
+using FCG.CatalogAPI.Application.Comum.Cache;
 using FCG.CatalogAPI.Application.Comum.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -6,7 +7,16 @@ namespace FCG.CatalogAPI.Application.Loja.Commands;
 public class AtivarJogoHandler
 {
     private readonly ICatalogDbContext _db;
-    public AtivarJogoHandler(ICatalogDbContext db) => _db = db;
+    private readonly ICatalogCache _cache;
+
+    public AtivarJogoHandler(ICatalogDbContext db, ICatalogCache cache)
+    {
+        _db = db;
+        _cache = cache;
+    }
+
+    /// <summary>Construtor de conveniência sem cache explícito (usado em testes existentes).</summary>
+    public AtivarJogoHandler(ICatalogDbContext db) : this(db, CacheNulo.Instancia) { }
 
     public async Task<bool> HandleAsync(Guid id, CancellationToken ct)
     {
@@ -15,6 +25,12 @@ public class AtivarJogoHandler
 
         jogo.Ativar();
         await _db.SaveChangesAsync(ct);
+
+        // Jogo reativado volta a aparecer na listagem e seu detalhe individual também
+        // muda (Ativo=true), então ambas as chaves precisam ser invalidadas.
+        await _cache.RemoveAsync(CatalogCacheKeys.ListaJogosAtivos, ct);
+        await _cache.RemoveAsync(CatalogCacheKeys.Jogo(id), ct);
+
         return true;
     }
 }

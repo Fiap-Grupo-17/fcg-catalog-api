@@ -2,10 +2,15 @@ using FCG.CatalogAPI.Application.Biblioteca.Commands;
 using FCG.CatalogAPI.Application.Comum.Interfaces;
 using FCG.CatalogAPI.Application.Loja.Commands;
 using FCG.CatalogAPI.Application.Loja.Queries;
+using FCG.CatalogAPI.Application.Loja.CatalogoEstendido.Commands;
+using FCG.CatalogAPI.Application.Loja.CatalogoEstendido.Queries;
 using FCG.CatalogAPI.API.Endpoints;
 using FCG.CatalogAPI.API.Middlewares;
 using FCG.CatalogAPI.Infrastructure.Mensageria;
 using FCG.CatalogAPI.Infrastructure.Persistencia;
+using FCG.CatalogAPI.Infrastructure.Persistencia.Mongo;
+using FCG.CatalogAPI.Infrastructure.Cache;
+using FCG.CatalogAPI.Infrastructure.Testing;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +59,32 @@ else
         opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 builder.Services.AddScoped<ICatalogDbContext>(p => p.GetRequiredService<CatalogDbContext>());
 
+// ── NoSQL (MongoDB) + Cache (Redis) — Fase 3, Itens 4 e 5 (Raul) ───
+// Aditivo: Postgres continua system-of-record. Em Testing usa fakes in-memory
+// para não exigir containers Redis/Mongo na suíte existente.
+if (useInMemory)
+{
+    builder.Services.AddSingleton<ICatalogCache, NoOpCatalogCache>();
+    builder.Services.AddSingleton<IProcessedEventStore, InMemoryProcessedEventStore>();
+    builder.Services.AddSingleton<IGameReadModelRepository, InMemoryGameReadModelRepository>();
+}
+else
+{
+    // Redis (IDistributedCache via StackExchange.Redis)
+    builder.Services.AddStackExchangeRedisCache(o =>
+        o.Configuration = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379");
+    builder.Services.AddSingleton<ICatalogCache, RedisCatalogCache>();
+
+    // MongoDB (driver oficial)
+    var mongoOptions = new MongoOptions();
+    builder.Configuration.GetSection(MongoOptions.SectionName).Bind(mongoOptions);
+    builder.Services.AddSingleton(mongoOptions);
+    builder.Services.AddSingleton<MongoContext>();
+    builder.Services.AddSingleton<IProcessedEventStore, MongoProcessedEventStore>();
+    builder.Services.AddSingleton<IGameReadModelRepository, MongoGameReadModelRepository>();
+    builder.Services.AddHostedService<MongoIndexInitializer>();
+}
+
 // ── Application Handlers ───────────────────────────────────────────
 builder.Services.AddScoped<CriarJogoHandler>();
 builder.Services.AddScoped<AtualizarJogoHandler>();
@@ -71,11 +102,23 @@ builder.Services.AddScoped<AtualizarPromocaoHandler>();
 builder.Services.AddScoped<EncerrarPromocaoHandler>();
 builder.Services.AddScoped<ListarPromocoesHandler>();
 
+// ── Catálogo estendido (MongoDB read model) — WS-B ─────────────────
+builder.Services.AddScoped<UpsertDetalhesJogoHandler>();
+builder.Services.AddScoped<BuscarDetalhesJogoHandler>();
+
+// ── Cache-aside de leitura do catálogo (Redis) — WS-A ──────────────
+builder.Services.AddCatalogReadCaching();
+
 // ── MassTransit + RabbitMQ ─────────────────────────────────────────
 builder.Services.AddScoped<IEventBus, MassTransitEventBus>();
 
 builder.Services.AddMassTransit(x =>
 {
+    // Prefixo de fila por serviço: evita colisão de nome de fila com outros
+    // serviços que também consomem PaymentProcessedEvent (ex.: Notifications),
+    // garantindo fan-out (uma fila por serviço) em vez de competing consumers.
+    x.SetEndpointNameFormatter(new DefaultEndpointNameFormatter("Catalog", false));
+
     x.AddConsumer<PaymentProcessedConsumer>();
 
     x.UsingRabbitMq((ctx, cfg) =>
@@ -88,6 +131,9 @@ builder.Services.AddMassTransit(x =>
                 h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
                 h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
             });
+
+        // Idempotência: deduplica qualquer mensagem consumida por ConsumeContext.MessageId — WS-C
+        cfg.UseConsumeFilter(typeof(IdempotentConsumeFilter<>), ctx);
 
         cfg.ConfigureEndpoints(ctx);
     });
@@ -181,6 +227,7 @@ app.MapGet("/health", () => Results.Ok(new
 }));
 
 app.MapJogosEndpoints();
+app.MapJogosDetalhesEndpoints();
 app.MapBibliotecaEndpoints();
 app.MapPromocoesEndpoints();
 

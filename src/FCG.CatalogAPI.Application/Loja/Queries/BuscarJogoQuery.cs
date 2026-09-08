@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FCG.CatalogAPI.Application.Loja.Queries;
 
-public class BuscarJogoHandler
+public class BuscarJogoHandler : IBuscarJogoHandler
 {
     private readonly ICatalogDbContext _db;
     public BuscarJogoHandler(ICatalogDbContext db) => _db = db;
