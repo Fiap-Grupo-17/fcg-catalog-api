@@ -11,6 +11,7 @@ using FCG.CatalogAPI.Infrastructure.Persistencia;
 using FCG.CatalogAPI.Infrastructure.Persistencia.Mongo;
 using FCG.CatalogAPI.Infrastructure.Cache;
 using FCG.CatalogAPI.Infrastructure.Testing;
+using Prometheus;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -201,6 +202,8 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+app.UseHttpMetrics(); // Prometheus: coleta métricas de requisições HTTP
+
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 // Swagger disponível em todos os ambientes exceto Production
@@ -253,6 +256,8 @@ app.MapPromocoesEndpoints();
         }
     }
 }
+
+app.MapMetrics(); // Prometheus: endpoint /metrics
 
 if (!isTestEnv) Log.Information("🚀 FCG.CatalogAPI iniciando...");
 app.Run();
