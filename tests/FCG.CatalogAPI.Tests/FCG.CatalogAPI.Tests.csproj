@@ -26,6 +26,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FCG.CatalogAPI.Domain\FCG.CatalogAPI.Domain.csproj" />
     <ProjectReference Include="..\..\src\FCG.CatalogAPI.Application\FCG.CatalogAPI.Application.csproj" />
+    <!-- Necessária para testar os decorators de cache-aside (CachedListarJogosHandler/
+         CachedBuscarJogoHandler), que residem na Infrastructure (WS-A, Fase 3). -->
+    <ProjectReference Include="..\..\src\FCG.CatalogAPI.Infrastructure\FCG.CatalogAPI.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

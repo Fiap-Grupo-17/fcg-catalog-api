@@ -42,6 +42,11 @@ spec:
                 secretKeyRef:
                   name: catalog-api-secrets
                   key: RabbitMQ__Password
+            - name: Mongo__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-api-secrets
+                  key: Mongo__ConnectionString
           livenessProbe:
             httpGet:
               path: /health

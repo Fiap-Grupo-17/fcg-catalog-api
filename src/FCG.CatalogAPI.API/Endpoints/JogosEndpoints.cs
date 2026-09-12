@@ -11,7 +11,7 @@ public static class JogosEndpoints
     {
         var group = app.MapGroup("/api/jogos").WithTags("Jogos");
 
-        group.MapGet("/", async (ListarJogosHandler handler, CancellationToken ct) =>
+        group.MapGet("/", async (IListarJogosHandler handler, CancellationToken ct) =>
         {
             var jogos = await handler.HandleAsync(ct);
             return Results.Ok(jogos);
@@ -22,7 +22,7 @@ public static class JogosEndpoints
             "Retorna todos os jogos ativos disponíveis no catálogo. Acesso público, não requer autenticação.")
         .Produces<List<JogoDto>>(200);
 
-        group.MapGet("/{id:guid}", async (Guid id, BuscarJogoHandler handler, CancellationToken ct) =>
+        group.MapGet("/{id:guid}", async (Guid id, IBuscarJogoHandler handler, CancellationToken ct) =>
         {
             var jogo = await handler.HandleAsync(id, ct);
             return jogo is null
