@@ -51,6 +51,25 @@ POST /api/biblioteca/aquisicoes
 | `Mongo__ConnectionString`       | String de conexão MongoDB *(via Secret)* |
 | `Mongo__Database`               | `fcg_catalog`                      |
 
+
+## CI/CD (GitHub Actions)
+
+O workflow `.github/workflows/ci.yml` tem dois jobs:
+
+- **build-and-test:** restaura, compila e roda os testes em todo push e pull request para a `main`. Os testes de integração usam um RabbitMQ como serviço do job.
+- **deploy:** roda só em push na `main`. Faz login no Azure por OIDC (sem senha guardada), constrói a imagem, roda o scan de vulnerabilidades (Trivy), publica no ACR com a tag igual ao hash do commit e atualiza o Deployment no AKS com `kubectl set image` (Rolling Update, sem downtime). Se o rollout falhar, o pipeline desfaz com `rollout undo`.
+
+**Configuração no GitHub** (Settings → Secrets and variables → Actions):
+
+| Tipo | Nome | Observação |
+|---|---|---|
+| Secret | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | identificadores da identidade do pipeline, não são senhas |
+| Variable | `ACR_NAME`, `ACR_LOGIN_SERVER`, `AKS_RESOURCE_GROUP`, `AKS_CLUSTER_NAME`, `K8S_NAMESPACE` | nomes dos recursos no Azure |
+
+**Login por OIDC:** o GitHub prova ao Azure que o job vem deste repositório e da branch `main`, e recebe um acesso temporário. A organização usa o formato de subject com IDs (`repo:<org>@<id>/<repo>@<id>:ref:refs/heads/main`), então a credencial federada da identidade `id-fcg-github` foi cadastrada com esse texto exato.
+
+**Regras do pipeline:** deploy só na `main`; sem `environment:` no job de deploy; tag da imagem = hash do commit (nunca `latest`); o pipeline não aplica manifestos, só troca a imagem (os manifestos ficam no `fcg-orchestration`).
+
 ## NoSQL (MongoDB) e Cache (Redis)
 
 A base de persistência principal do catálogo é **PostgreSQL/EF Core** (jogos, pedidos,
@@ -100,9 +119,16 @@ mongosh fcg_catalog --eval "db.processed_events.find().limit(5)"
 ## Executar localmente
 
 ```bash
+# PowerShell (Linux/macOS: cp .env.example .env)
+Copy-Item .env.example .env
+# edite o .env: POSTGRES_PASSWORD, RABBITMQ_PASSWORD e JWT_SECRET
+# (JWT_SECRET igual ao do UsersAPI, mínimo 32 caracteres)
+
 docker compose up -d
 # Swagger: http://localhost:8082/swagger
 ```
+
+O `docker compose` se recusa a subir se alguma dessas variáveis estiver vazia. O `.env` não é versionado.
 
 ## EF Core Migrations
 
@@ -116,7 +142,12 @@ dotnet ef database update
 
 ## Deploy Kubernetes
 
+No AKS, os segredos vêm do Azure Key Vault e o deploy é feito pelo pipeline (veja CI/CD). Para um cluster local, crie o Secret a partir do modelo (o `secret.yaml` é ignorado pelo Git):
+
 ```bash
+Copy-Item k8s/secret.example.yaml k8s/secret.yaml
+# troque cada <placeholder> por um valor seu
+
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/secret.yaml
 kubectl apply -f k8s/configmap.yaml
@@ -125,6 +156,7 @@ kubectl apply -f k8s/mongo.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 ```
+> Não use `kubectl apply -f k8s/`: isso aplicaria também o `secret.example.yaml`, com placeholders no lugar dos valores reais.
 ## Grupo 17 — Pos-Tech FIAP
 - Letícia Lopes Ribeiro Vasconcelos
 - Marcelo Henrique Cornelis Rei
