@@ -1,4 +1,7 @@
-name: CI
+# .github/workflows/ci.yml — fcg-catalog-api
+# CI (build + testes) em todo PR/push na main  →  CD (ACR + AKS) só em push na main.
+# Login no Azure por OIDC (sem senha). Contrato de Secrets/Variables: HANDOFF_PIPELINE_AKS_TC4.md
+name: CI/CD
 
 on:
   push:
@@ -8,6 +11,8 @@ on:
 
 env:
   SOLUTION: FCG.CatalogAPI.sln
+  DEPLOYMENT: catalog-api         # nome do Deployment no k8s (k8s/05-catalog-api.yaml)
+  CONTAINER: catalog-api          # nome do container dentro do Deployment
 
 jobs:
   build-and-test:
@@ -43,32 +48,92 @@ jobs:
       - name: Rodar testes
         run: dotnet test ${{ env.SOLUTION }} --configuration Release --no-build --verbosity normal
 
-  docker-publish:
+  deploy:
+    name: Publicar no ACR e atualizar o AKS
     needs: build-and-test
-    if: github.event_name == 'push'
+    # Só em push na main. (PR não consegue token OIDC válido: a federated credential só aceita refs/heads/main.)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # ⚠️ NÃO adicionar "environment:" neste job — muda o subject do token OIDC e o login no Azure falha.
+
+    permissions:
+      id-token: write   # obrigatório: permite pedir o token OIDC ao GitHub
+      contents: read    # checkout
+
+    # Evita dois deploys simultâneos do mesmo serviço (o segundo espera o primeiro terminar).
+    concurrency:
+      group: deploy-catalog-api
+      cancel-in-progress: false
+
+    env:
+      # Repositório da imagem no ACR + tag = SHA do commit (rastreável: imagem em produção ↔ commit na main).
+      # (env de job não enxerga o env do workflow, por isso o nome da imagem fica explícito aqui.)
+      IMAGE: ${{ vars.ACR_LOGIN_SERVER }}/fcg-catalog-api:${{ github.sha }}
+
     steps:
       - name: Baixar o código
         uses: actions/checkout@v4
 
-      - name: Login no Docker Hub
-        uses: docker/login-action@v3
+      - name: Login no Azure (OIDC, sem senha)
+        uses: azure/login@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Definir as tags da imagem
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/fcg-catalog-api
-          tags: |
-            type=sha
-            type=raw,value=latest
+      - name: Login no ACR
+        run: az acr login --name "${{ vars.ACR_NAME }}"
 
-      - name: Construir e publicar a imagem
-        uses: docker/build-push-action@v6
+      - name: Construir a imagem (tag = commit)
+        # Runner é amd64 = mesma arquitetura dos nós do AKS. NÃO usar "az acr build" (ACR Tasks bloqueado na conta).
+        run: docker build -t "$IMAGE" .
+
+      - name: Scan de vulnerabilidades (Trivy)
+        # Apenas relatório (não bloqueia o deploy). Para bloquear em CRITICAL, trocar --exit-code 0 por 1.
+        # Imagem do Trivy fixada em versão; idealmente fixar por digest (@sha256:...).
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.58.1 image --no-progress --ignore-unfixed \
+            --severity CRITICAL,HIGH --exit-code 0 "$IMAGE"
+
+      - name: Publicar a imagem no ACR
+        run: docker push "$IMAGE"
+
+      # ── Só se o AKS usar Entra ID + Azure RBAC ("Caminho 2" da Fase 9.A0). Caso contrário, deixe comentado.
+      # - name: Instalar kubelogin
+      #   uses: azure/use-kubelogin@v1
+      #   with:
+      #     kubelogin-version: 'v0.1.4'
+
+      - name: Conectar no AKS
+        uses: azure/aks-set-context@v4
         with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          resource-group: ${{ vars.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
+          # use-kubelogin: 'true'   # ← descomentar junto com o passo acima (Caminho 2)
+
+      - name: Deploy sem downtime (Rolling Update)
+        # O Deployment já tem replicas: 2, maxUnavailable: 0, maxSurge: 1 e readinessProbe
+        # → sobe 1 pod novo, espera ficar pronto, só então derruba 1 antigo.
+        run: |
+          NS="${{ vars.K8S_NAMESPACE }}"
+          kubectl set image deployment/${DEPLOYMENT} ${CONTAINER}="$IMAGE" -n "$NS"
+          kubectl annotate deployment/${DEPLOYMENT} -n "$NS" --overwrite \
+            kubernetes.io/change-cause="CI ${GITHUB_SHA::7} por ${GITHUB_ACTOR}"
+          kubectl rollout status deployment/${DEPLOYMENT} -n "$NS" --timeout=300s
+
+      - name: Desfazer o deploy se o rollout falhar
+        if: failure()
+        run: |
+          kubectl rollout undo deployment/${DEPLOYMENT} -n "${{ vars.K8S_NAMESPACE }}" || true
+
+      - name: Resumo
+        if: success()
+        run: |
+          {
+            echo "### ✅ Deploy concluído"
+            echo "- Imagem: \`$IMAGE\`"
+            echo "- Deployment: \`${DEPLOYMENT}\` (namespace \`${{ vars.K8S_NAMESPACE }}\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          kubectl get deployment/${DEPLOYMENT} -n "${{ vars.K8S_NAMESPACE }}" -o wide
