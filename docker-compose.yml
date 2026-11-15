@@ -9,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: fcg_db
       POSTGRES_USER: fcg_user
-      POSTGRES_PASSWORD: fcg_pass
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}"
     volumes:
       - pgdata_catalog:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
       - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD no arquivo .env}"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
@@ -67,14 +67,14 @@ services:
       - "8082:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Docker
-      ConnectionStrings__Postgres: "Host=postgres;Database=fcg_db;Username=fcg_user;Password=fcg_pass"
-      Jwt__Secret: "fcg-super-secret-key-change-in-production-min32chars!"
+      ConnectionStrings__Postgres: "Host=postgres;Database=fcg_db;Username=fcg_user;Password=${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no arquivo .env}"
+      Jwt__Secret: "${JWT_SECRET:?Defina JWT_SECRET no arquivo .env}"
       Jwt__Issuer: "fcg-users-api"
       Jwt__Audience: "fcg-platform"
       RabbitMQ__Host: rabbitmq
       RabbitMQ__VirtualHost: /
       RabbitMQ__Username: guest
-      RabbitMQ__Password: guest
+      RabbitMQ__Password: "${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD no arquivo .env}"
       Redis__ConnectionString: "redis:6379"
       Mongo__ConnectionString: "mongodb://mongo:27017"
       Mongo__Database: "fcg_catalog"
