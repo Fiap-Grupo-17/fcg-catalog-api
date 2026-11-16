@@ -5,8 +5,8 @@ metadata:
   namespace: fcg
 data:
   ASPNETCORE_ENVIRONMENT: "Production"
-  Jwt__Issuer: "FCG.UsersAPI"
-  Jwt__Audience: "FCG.Platform"
+  Jwt__Issuer: "fcg-users-api"
+  Jwt__Audience: "fcg-platform"
   RabbitMQ__Host: "rabbitmq-service"
   RabbitMQ__VirtualHost: "/"
   RabbitMQ__Username: "guest"
