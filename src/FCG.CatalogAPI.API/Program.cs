@@ -130,7 +130,7 @@ builder.Services.AddMassTransit(x =>
             h =>
             {
                 h.Username(builder.Configuration["RabbitMQ:Username"] ?? "guest");
-                h.Password(builder.Configuration["RabbitMQ:Password"] ?? "guest");
+                h.Password(builder.Configuration["RabbitMQ:Password"] ?? "");
             });
 
         // Idempotência: deduplica qualquer mensagem consumida por ConsumeContext.MessageId — WS-C
