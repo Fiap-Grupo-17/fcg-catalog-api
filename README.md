@@ -43,8 +43,8 @@ POST /api/biblioteca/aquisicoes
 |---------------------------------|------------------------------------|
 | `ConnectionStrings__Postgres`   | String de conexão PostgreSQL       |
 | `Jwt__Secret`                   | Segredo JWT (igual ao UsersAPI)    |
-| `Jwt__Issuer`                   | `FCG.UsersAPI`                     |
-| `Jwt__Audience`                 | `FCG.Platform`                     |
+| `Jwt__Issuer`                   | `fcg-users-api`                    |
+| `Jwt__Audience`                 | `fcg-platform`                     |
 | `RabbitMQ__Host`                | Host do RabbitMQ                   |
 | `RabbitMQ__Password`            | Senha RabbitMQ *(via Secret)*      |
 | `Redis__ConnectionString`       | String de conexão Redis (`host:porta`) |
@@ -142,12 +142,22 @@ dotnet ef database update
 
 ## Deploy Kubernetes
 
-No AKS, os segredos vêm do Azure Key Vault e o deploy é feito pelo pipeline (veja CI/CD). Para um cluster local, crie o Secret a partir do modelo (o `secret.yaml` é ignorado pelo Git):
+**No AKS** o deploy é feito pelo pipeline (veja CI/CD) e os segredos vêm do Azure Key Vault. Os manifestos da plataforma ficam no repositório `fcg-orchestration`.
+
+**Cluster local:** o Catalog depende de Postgres e RabbitMQ, que não estão neste repositório. O jeito mais simples é subir a plataforma inteira pelo `fcg-orchestration` (siga o README dele). Para testar só o Catalog localmente, use o `docker compose` da seção "Executar localmente".
+
+Os manifestos deste repositório (`k8s/`) servem de referência. Para aplicá-los num cluster local que já tenha Postgres e RabbitMQ com as mesmas credenciais:
 
 ```bash
+# 1. Construir a imagem (o deployment usa fcg-catalog-api:latest)
+docker build -t fcg-catalog-api:latest .
+# Cluster kind (Docker Desktop recente): kind load docker-image fcg-catalog-api:latest
+
+# 2. Criar o Secret a partir do modelo (o secret.yaml é ignorado pelo Git)
 Copy-Item k8s/secret.example.yaml k8s/secret.yaml
 # troque cada <placeholder> por um valor seu
 
+# 3. Aplicar os arquivos um a um
 kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/secret.yaml
 kubectl apply -f k8s/configmap.yaml
@@ -155,7 +165,9 @@ kubectl apply -f k8s/redis.yaml
 kubectl apply -f k8s/mongo.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
+kubectl get pods -n fcg
 ```
+
 > Não use `kubectl apply -f k8s/`: isso aplicaria também o `secret.example.yaml`, com placeholders no lugar dos valores reais.
 ## Grupo 17 — Pos-Tech FIAP
 - Letícia Lopes Ribeiro Vasconcelos
