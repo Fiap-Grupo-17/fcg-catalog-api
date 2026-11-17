@@ -1,4 +1,6 @@
 using FCG.CatalogAPI.API.Comum;
+using FCG.CatalogAPI.Application.Comum.Interfaces;
+using FCG.CatalogAPI.Application.Loja.Busca;
 using FCG.CatalogAPI.Application.Loja.Commands;
 using FCG.CatalogAPI.Application.Loja.Queries;
 using Microsoft.AspNetCore.Mvc;
@@ -21,6 +23,36 @@ public static class JogosEndpoints
         .WithDescription(
             "Retorna todos os jogos ativos disponíveis no catálogo. Acesso público, não requer autenticação.")
         .Produces<List<JogoDto>>(200);
+
+        // Busca avançada (TC4, item 3): consulta SÓ o Elasticsearch, nunca o Postgres.
+        group.MapGet("/search", async (
+            [FromQuery(Name = "q")] string? q,
+            [FromQuery] int? tamanho,
+            BuscarJogosPorTextoHandler handler,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var resultado = await handler.HandleAsync(q, tamanho, ct);
+                return Results.Ok(resultado);
+            }
+            catch (BuscaIndisponivelException ex)
+            {
+                return Results.Json(new ErroResponse(ex.Message), statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .WithName("BuscarJogosPorTexto")
+        .WithSummary("Busca avançada de jogos (Elasticsearch)")
+        .WithDescription(
+            "Busca por título, gênero e descrição com **tolerância a erros de digitação** (fuzzy, `fuzziness: AUTO`) " +
+            "e **ordenação por relevância** (`score`, maior primeiro). Peso: título 3, gênero 2, descrição 1. " +
+            "Consulta somente o índice do Elasticsearch, independente do banco relacional. Acesso público.\n\n" +
+            "Parâmetros: `q` (obrigatório) e `tamanho` (1–50, padrão 20).\n\n" +
+            "**400** – parâmetro `q` ausente ou vazio.\n\n" +
+            "**503** – serviço de busca indisponível.")
+        .Produces<List<JogoBuscaDto>>(200)
+        .Produces<ErroResponse>(400)
+        .Produces<ErroResponse>(503);
 
         group.MapGet("/{id:guid}", async (Guid id, IBuscarJogoHandler handler, CancellationToken ct) =>
         {

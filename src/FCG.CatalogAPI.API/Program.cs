@@ -1,3 +1,4 @@
+using FCG.CatalogAPI.Application.Loja.Busca;
 using FCG.CatalogAPI.Application.Biblioteca.Commands;
 using FCG.CatalogAPI.Application.Comum.Interfaces;
 using FCG.CatalogAPI.Application.Loja.Commands;
@@ -9,6 +10,7 @@ using FCG.CatalogAPI.API.Middlewares;
 using FCG.CatalogAPI.Infrastructure.Mensageria;
 using FCG.CatalogAPI.Infrastructure.Persistencia;
 using FCG.CatalogAPI.Infrastructure.Persistencia.Mongo;
+using FCG.CatalogAPI.Infrastructure.Busca;
 using FCG.CatalogAPI.Infrastructure.Cache;
 using FCG.CatalogAPI.Infrastructure.Testing;
 using Prometheus;
@@ -68,6 +70,7 @@ if (useInMemory)
     builder.Services.AddSingleton<ICatalogCache, NoOpCatalogCache>();
     builder.Services.AddSingleton<IProcessedEventStore, InMemoryProcessedEventStore>();
     builder.Services.AddSingleton<IGameReadModelRepository, InMemoryGameReadModelRepository>();
+    builder.Services.AddSingleton<IJogoSearchIndex, InMemoryJogoSearchIndex>();
 }
 else
 {
@@ -84,6 +87,9 @@ else
     builder.Services.AddSingleton<IProcessedEventStore, MongoProcessedEventStore>();
     builder.Services.AddSingleton<IGameReadModelRepository, MongoGameReadModelRepository>();
     builder.Services.AddHostedService<MongoIndexInitializer>();
+
+    // Elasticsearch (cliente oficial) — Busca Avançada, TC4 item 3
+    builder.Services.AddBuscaElasticsearch(builder.Configuration);
 }
 
 // ── Application Handlers ───────────────────────────────────────────
@@ -93,6 +99,7 @@ builder.Services.AddScoped<DesativarJogoHandler>();
 builder.Services.AddScoped<AtivarJogoHandler>();
 builder.Services.AddScoped<IniciarAquisicaoHandler>();
 builder.Services.AddScoped<ListarJogosHandler>();
+builder.Services.AddScoped<BuscarJogosPorTextoHandler>();
 builder.Services.AddScoped<BuscarJogoHandler>();
 builder.Services.AddScoped<BuscarPedidoHandler>();
 builder.Services.AddScoped<ListarPedidosHandler>();

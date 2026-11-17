@@ -1,3 +1,4 @@
+using FCG.CatalogAPI.Application.Comum.Busca;
 using FCG.CatalogAPI.Application.Comum.Cache;
 using FCG.CatalogAPI.Application.Comum.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -8,12 +9,17 @@ public class AtivarJogoHandler
 {
     private readonly ICatalogDbContext _db;
     private readonly ICatalogCache _cache;
+    private readonly IJogoSearchIndex _busca;
 
-    public AtivarJogoHandler(ICatalogDbContext db, ICatalogCache cache)
+    public AtivarJogoHandler(ICatalogDbContext db, ICatalogCache cache, IJogoSearchIndex busca)
     {
         _db = db;
         _cache = cache;
+        _busca = busca;
     }
+
+    /// <summary>Construtor de conveniência sem índice de busca explícito (usado em testes existentes).</summary>
+    public AtivarJogoHandler(ICatalogDbContext db, ICatalogCache cache) : this(db, cache, IndiceBuscaNulo.Instancia) { }
 
     /// <summary>Construtor de conveniência sem cache explícito (usado em testes existentes).</summary>
     public AtivarJogoHandler(ICatalogDbContext db) : this(db, CacheNulo.Instancia) { }
@@ -30,6 +36,9 @@ public class AtivarJogoHandler
         // muda (Ativo=true), então ambas as chaves precisam ser invalidadas.
         await _cache.RemoveAsync(CatalogCacheKeys.ListaJogosAtivos, ct);
         await _cache.RemoveAsync(CatalogCacheKeys.Jogo(id), ct);
+
+        // Jogo reativado volta ao índice de busca.
+        await _busca.IndexarAsync(jogo, ct);
 
         return true;
     }

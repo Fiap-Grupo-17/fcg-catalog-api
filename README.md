@@ -33,6 +33,7 @@ POST /api/biblioteca/aquisicoes
 |--------|--------------------------------|---------|--------------------------------|
 | GET    | /health                        | —       | Health check                   |
 | GET    | /api/jogos                     | —       | Lista catálogo ativo           |
+| GET    | /api/jogos/search?q=termo      | —       | Busca avançada (Elasticsearch: fuzzy + relevância) |
 | POST   | /api/jogos                     | Admin   | Cria novo jogo                 |
 | POST   | /api/biblioteca/aquisicoes     | JWT     | Inicia compra (202 Accepted)   |
 | GET    | /api/biblioteca                | JWT     | Lista biblioteca do usuário    |
@@ -50,6 +51,10 @@ POST /api/biblioteca/aquisicoes
 | `Redis__ConnectionString`       | String de conexão Redis (`host:porta`) |
 | `Mongo__ConnectionString`       | String de conexão MongoDB *(via Secret)* |
 | `Mongo__Database`               | `fcg_catalog`                      |
+| `Elasticsearch__Url`            | URL do Elasticsearch (`http://elasticsearch-service:9200` no AKS) |
+| `Elasticsearch__Username`       | `elastic`                          |
+| `Elasticsearch__Password`       | Senha do Elasticsearch *(via Secret / Key Vault `elastic-password`)* |
+| `Elasticsearch__IndexName`      | `jogos`                            |
 
 
 ## CI/CD (GitHub Actions)
@@ -116,12 +121,33 @@ mongosh fcg_catalog --eval "db.game_catalog_extended.getIndexes()"
 mongosh fcg_catalog --eval "db.processed_events.find().limit(5)"
 ```
 
+## Busca Avançada (Elasticsearch) — TC4, item 3
+
+- **Motor independente do banco relacional:** `GET /api/jogos/search` consulta **somente** o índice `jogos`
+  do Elasticsearch; o Postgres continua sendo a fonte da verdade.
+- **Sincronização:** os command handlers indexam o jogo logo após o `SaveChanges` —
+  criar e editar → indexa; desativar → remove do índice; ativar → indexa de novo.
+  Uma falha do Elasticsearch **não** desfaz a gravação no Postgres (só loga `[BUSCA]`).
+- **Carga inicial / correção:** no startup, `ElasticsearchIndexInitializer` cria o índice (se não existir) e
+  sincroniza com o Postgres (indexa os ativos, remove os inativos). Se o Elasticsearch estiver fora, tenta de novo a cada 30 s
+  sem derrubar a API.
+- **Fuzzy + relevância:** `multi_match` com `fuzziness: AUTO` nos campos `titulo^3`, `genero^2`, `descricao`,
+  ordenado por `_score` (maior primeiro). A resposta traz o `score` de cada jogo.
+- **Parâmetros:** `q` (obrigatório; vazio → 400) e `tamanho` (1–50, padrão 20). Elasticsearch fora do ar → 503.
+- **Testes:** no ambiente `Testing` o índice é in-memory (`InMemoryJogoSearchIndex`), com a mesma regra de tolerância
+  a erros de digitação; o CI não precisa de Elasticsearch.
+
+```bash
+curl -s "http://localhost:8082/api/jogos/search?q=aventrua" | jq       # erro de digitação → encontra "Aventura..."
+curl -s "http://localhost:8082/api/jogos/search?q=aventura%20espacial" | jq '.[] | {titulo, score}'
+```
+
 ## Executar localmente
 
 ```bash
 # PowerShell (Linux/macOS: cp .env.example .env)
 Copy-Item .env.example .env
-# edite o .env: POSTGRES_PASSWORD, RABBITMQ_PASSWORD e JWT_SECRET
+# edite o .env: POSTGRES_PASSWORD, RABBITMQ_PASSWORD, JWT_SECRET e ELASTIC_PASSWORD
 # (JWT_SECRET igual ao do UsersAPI, mínimo 32 caracteres)
 
 docker compose up -d
