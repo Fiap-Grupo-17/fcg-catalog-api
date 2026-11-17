@@ -204,6 +204,9 @@ var app = builder.Build();
 
 app.UseHttpMetrics(); // Prometheus: coleta métricas de requisições HTTP
 
+// Live Deploy (TC4): versão visível em todas as respostas, sem passar pelo cache Redis
+app.Use((ctx, next) => { ctx.Response.Headers["X-FCG-Versao"] = "live-deploy-1"; return next(); });
+
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 // Swagger disponível em todos os ambientes exceto Production
